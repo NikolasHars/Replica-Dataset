@@ -14,7 +14,10 @@
 #include "GLCheck.h"
 #include "MirrorRenderer.h"
 
-void saveData(string fileName, MatrixXd  matrix, string img_name)
+using namespace std;
+using namespace pangolin;
+
+void saveData(std::string fileName, MatrixXd  matrix, std::string img_name)
 {
     //https://eigen.tuxfamily.org/dox/structEigen_1_1IOFormat.html
     const static IOFormat CSVFormat(FullPrecision, DontAlignCols, ", ", ",", "", "");
@@ -173,7 +176,7 @@ int main(int argc, char* argv[]) {
 
       if (togglePose) {
         T_camera_world = s_cam.GetModelViewMatrix();
-        saveData(pose_file_name, T_camera_world, name + std::string(number));
+        saveData(pose_file_name, T_camera_world, name + std::to_string(number));
         togglePose = false;
         number++;
       }
