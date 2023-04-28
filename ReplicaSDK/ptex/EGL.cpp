@@ -7,6 +7,7 @@
 #include <GL/glew.h>
 #include <dlfcn.h>
 #include <cstring>
+#include <X11/Xlib.h>
 
 EGLCtx::EGLCtx(const bool createCtx, const int cudaDevice, const bool createSurface)
     : lib("libEGL.so"), createdCtx(createCtx) {

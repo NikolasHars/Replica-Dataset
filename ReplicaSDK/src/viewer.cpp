@@ -7,6 +7,20 @@
 #include "GLCheck.h"
 #include "MirrorRenderer.h"
 
+void saveData(string fileName, MatrixXd  matrix, string img_name)
+{
+    //https://eigen.tuxfamily.org/dox/structEigen_1_1IOFormat.html
+    const static IOFormat CSVFormat(FullPrecision, DontAlignCols, ", ", ",", "", "");
+ 
+    ofstream file;
+    file.open(fileName, std::ios_base::app);
+    if (file.is_open())
+    {
+        file << img_name << "," << matrix.format(CSVFormat) << "\n";
+        file.close();
+    }
+}
+
 int main(int argc, char* argv[]) {
 
   ASSERT(argc == 3 || argc == 4, "Usage: ./ReplicaViewer mesh.ply textures [glass.sur]");
@@ -15,6 +29,10 @@ int main(int argc, char* argv[]) {
   const std::string atlasFolder(argv[2]);
   ASSERT(pangolin::FileExists(meshFile));
   ASSERT(pangolin::FileExists(atlasFolder));
+
+  std::string pose_file_name = "poses.csv";
+  std::string name = "pose_";
+  int number = 0;
 
   std::string surfaceFile;
   if (argc == 4) {
@@ -103,8 +121,12 @@ int main(int argc, char* argv[]) {
   pangolin::Var<bool> drawMirrors("ui.Draw_mirrors", true, true);
   pangolin::Var<bool> drawDepth("ui.Draw_depth", false, true);
 
+  pangolin::Var<bool> togglePose("ui.Toggle_pose", false, true);
+
   ptexMesh.SetExposure(exposure);
 
+
+  Eigen::Matrix4d T_camera_world;
   while (!pangolin::ShouldQuit()) {
     glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 
@@ -140,6 +162,13 @@ int main(int argc, char* argv[]) {
         ptexMesh.RenderDepth(s_cam, depthScale);
       } else {
         ptexMesh.Render(s_cam);
+      }
+
+      if (togglePose) {
+        T_camera_world = s_cam.GetModelViewMatrix();
+        saveData(pose_file_name, T_camera_world, name + std::string(number));
+        togglePose = false;
+        number++;
       }
 
       glDisable(GL_CULL_FACE);
