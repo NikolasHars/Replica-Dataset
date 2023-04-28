@@ -15,7 +15,7 @@
 #include "MirrorRenderer.h"
 
 using namespace std;
-using namespace pangolin;
+using namespace Eigen;
 
 void saveData(std::string fileName, MatrixXd  matrix, std::string img_name)
 {
