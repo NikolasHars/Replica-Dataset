@@ -3,6 +3,13 @@
 
 #include <pangolin/display/display.h>
 #include <pangolin/display/widgets/widgets.h>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <stdio.h>
+
+#include <Eigen/Core>
+#include <Eigen/Geometry>
 
 #include "GLCheck.h"
 #include "MirrorRenderer.h"
