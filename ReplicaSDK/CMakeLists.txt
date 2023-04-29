@@ -44,6 +44,7 @@ include_directories("/cluster/project/infk/courses/252-0579-00L/group04/yaml-cpp
 add_executable(ReplicaViewer src/viewer.cpp src/MirrorSurface.cpp)
 
 target_link_libraries(ReplicaViewer
+                      yaml-cpp
                       ${Pangolin_LIBRARIES}
                       ${dl_LIBRARIES}
                       GL

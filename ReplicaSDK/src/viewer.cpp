@@ -4,23 +4,70 @@
 #include <pangolin/display/display.h>
 #include <pangolin/display/widgets/widgets.h>
 
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <stdio.h>
+
+#include <yaml-cpp/yaml.h>
+
+#include <map>
+#include <vector>
+
+#include <random>
+
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+#include <Eigen/Dense>
+#include <cmath>
+
 #include "GLCheck.h"
 #include "MirrorRenderer.h"
 
+using namespace std;
+using namespace Eigen;
+
+std::string YAML_FILE = "/cluster/project/infk/courses/252-0579-00L/group04/processed_data/conf_viewer.yaml";
+auto CONFIG = YAML::LoadFile(YAML_FILE);
+
+void saveData(std::string fileName, MatrixXd  matrix, std::string img_name)
+{
+    //https://eigen.tuxfamily.org/dox/structEigen_1_1IOFormat.html
+    const static IOFormat CSVFormat(FullPrecision, DontAlignCols, ", ", ",", "", "");
+ 
+    ofstream file;
+    file.open(fileName, std::ios_base::app);
+    if (file.is_open())
+    {
+        file << img_name << "," << matrix.format(CSVFormat) << "\n";
+        file.close();
+    }
+}
+
+
+
 int main(int argc, char* argv[]) {
+  std::string data_path = CONFIG["data_path"].as<std::string>();
+  std::string scene_name = std::string(argv[1]);
 
-  ASSERT(argc == 3 || argc == 4, "Usage: ./ReplicaViewer mesh.ply textures [glass.sur]");
+  const std::string meshFile = data_path + scene_name + "/mesh.ply";
+  const std::string atlasFolder = data_path + scene_name + "/textures";
+  const std::string surfaceFile = data_path + scene_name + "/glass.sur";
 
-  const std::string meshFile(argv[1]);
-  const std::string atlasFolder(argv[2]);
   ASSERT(pangolin::FileExists(meshFile));
   ASSERT(pangolin::FileExists(atlasFolder));
+  ASSERT(pangolin::FileExists(surfaceFile));
 
-  std::string surfaceFile;
-  if (argc == 4) {
-    surfaceFile = std::string(argv[3]);
-    ASSERT(pangolin::FileExists(surfaceFile));
-  }
+  // width + height
+  const int width = CONFIG["width"].as<int>();
+  const int height = CONFIG["height"].as<int>();
+
+  // Output folder and pose file
+  std::string name = scene_name;
+  std::string pose_file_name = name + "_poses.csv";
+
+  std::string name = "pose_";
+  int number = 0;
 
   const int uiWidth = 180;
   const int width = 1280;
@@ -103,8 +150,12 @@ int main(int argc, char* argv[]) {
   pangolin::Var<bool> drawMirrors("ui.Draw_mirrors", true, true);
   pangolin::Var<bool> drawDepth("ui.Draw_depth", false, true);
 
+  pangolin::Var<bool> togglePose("ui.Toggle_pose", false, true);
+
   ptexMesh.SetExposure(exposure);
 
+
+  Eigen::Matrix4d T_camera_world;
   while (!pangolin::ShouldQuit()) {
     glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 
@@ -140,6 +191,13 @@ int main(int argc, char* argv[]) {
         ptexMesh.RenderDepth(s_cam, depthScale);
       } else {
         ptexMesh.Render(s_cam);
+      }
+
+      if (togglePose) {
+        T_camera_world = s_cam.GetModelViewMatrix();
+        saveData(pose_file_name, T_camera_world, name + std::to_string(number));
+        togglePose = false;
+        number++;
       }
 
       glDisable(GL_CULL_FACE);
