@@ -116,6 +116,7 @@ EGLCtx::EGLCtx(const bool createCtx, const int cudaDevice, const bool createSurf
         continue;
 
       if (cudaDevNumber == cudaDevice) {
+        foundCudaDev = true;
         break;
       }
     }
