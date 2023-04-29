@@ -9,6 +9,8 @@
 #include <Eigen/Dense>
 #include <fstream>
 #include <yaml-cpp/yaml.h>
+
+#include <array>
 #include <map>
 #include <vector>
 #include <stdio.h>
@@ -28,6 +30,20 @@ using namespace Eigen;
 
 std::string YAML_FILE = "/cluster/project/infk/courses/252-0579-00L/group04/processed_data/conf.yaml";
 auto CONFIG = YAML::LoadFile(YAML_FILE);
+
+/**
+  theta_x = atan2(r32, r33)
+  theta_y = atan2(-r31, sqrt(r32^2 + r33^2))
+  theta_z = atan2(r21, r11)
+*/
+std::array<double, 3> rodriguezFormula(Eigen::Matrix4d& hom_pose) {
+  theta_x = atan2(hom_pose(2,1), hom_pose(2,2));
+  theta_y = atan2(-hom_pose(2,0), sqrt(hom_pose(2,1) * hom_pose(2,1) + hom_pose(2,2) * hom_pose(2,2)));
+  theta_z = atan2(hom_pose(1,0), hom_pose(0,0))
+  return std::array<double, 3> {theta_x, theta_y, theta_z};
+
+}
+
 
 void saveData(string fileName, MatrixXd  matrix, string img_name)
 {

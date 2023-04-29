@@ -3,19 +3,32 @@
 
 #include <pangolin/display/display.h>
 #include <pangolin/display/widgets/widgets.h>
+
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <stdio.h>
 
+#include <yaml-cpp/yaml.h>
+
+#include <map>
+#include <vector>
+
+#include <random>
+
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+#include <Eigen/Dense>
+#include <cmath>
 
 #include "GLCheck.h"
 #include "MirrorRenderer.h"
 
 using namespace std;
 using namespace Eigen;
+
+std::string YAML_FILE = "/cluster/project/infk/courses/252-0579-00L/group04/processed_data/conf_viewer.yaml";
+auto CONFIG = YAML::LoadFile(YAML_FILE);
 
 void saveData(std::string fileName, MatrixXd  matrix, std::string img_name)
 {
@@ -31,24 +44,30 @@ void saveData(std::string fileName, MatrixXd  matrix, std::string img_name)
     }
 }
 
+
+
 int main(int argc, char* argv[]) {
+  std::string data_path = CONFIG["data_path"].as<std::string>();
+  std::string scene_name = std::string(argv[1]);
 
-  ASSERT(argc == 3 || argc == 4, "Usage: ./ReplicaViewer mesh.ply textures [glass.sur]");
+  const std::string meshFile = data_path + scene_name + "/mesh.ply";
+  const std::string atlasFolder = data_path + scene_name + "/textures";
+  const std::string surfaceFile = data_path + scene_name + "/glass.sur";
 
-  const std::string meshFile(argv[1]);
-  const std::string atlasFolder(argv[2]);
   ASSERT(pangolin::FileExists(meshFile));
   ASSERT(pangolin::FileExists(atlasFolder));
+  ASSERT(pangolin::FileExists(surfaceFile));
 
-  std::string pose_file_name = "poses.csv";
+  // width + height
+  const int width = CONFIG["width"].as<int>();
+  const int height = CONFIG["height"].as<int>();
+
+  // Output folder and pose file
+  std::string name = scene_name;
+  std::string pose_file_name = name + "_poses.csv";
+
   std::string name = "pose_";
   int number = 0;
-
-  std::string surfaceFile;
-  if (argc == 4) {
-    surfaceFile = std::string(argv[3]);
-    ASSERT(pangolin::FileExists(surfaceFile));
-  }
 
   const int uiWidth = 180;
   const int width = 1280;
