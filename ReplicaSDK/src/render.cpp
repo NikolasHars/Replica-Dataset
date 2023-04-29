@@ -65,7 +65,7 @@ void randomRotation(
   const Eigen::Vector3d& axis1, 
   const Eigen::Vector3d& axis2,
   const Eigen::Vector3d& translation_vector,
-  Eigen::Matrix4d& inv_rotation_matrix4d,
+  Eigen::Matrix4d& cam_matrix,
   Eigen::Matrix4d& transformation_matrix)
 {
     // Generate a random angle between 0 and random_angle
@@ -89,7 +89,7 @@ void randomRotation(
     Eigen::Matrix3d rotation_matrix = (rotation2 * rotation1).toRotationMatrix();
 
     // Invert the rotation matrix to be able to rotate the camera back to the original path -> no strong deviation from path
-    Eigen::Matrix3d inv_rotation_matrix3d = rotation_matrix.inverse();
+    // Eigen::Matrix3d inv_rotation_matrix3d = rotation_matrix.inverse();
 
     // Create a 3D affine transformation from the rotation matrix and translation vector
     Eigen::Transform<double, 3, Eigen::Affine> affine_transform;
@@ -99,15 +99,15 @@ void randomRotation(
     // Convert the affine transformation to a 4x4 homogeneous transformation matrix
     transformation_matrix = affine_transform.matrix();
 
-    // Rotate the camera back to the original path while maintaining the new incremental transformation
-    transformation_matrix *= inv_rotation_matrix4d;
+    // // Rotate the camera back to the original path while maintaining the new incremental transformation
+    // transformation_matrix *= inv_rotation_matrix4d;
 
-    // Create a 3D affine transformation from the inverse rotation matrix and 0 translation vector
-    Eigen::Transform<double, 3, Eigen::Affine> inv_affine_transform;
-    inv_affine_transform = inv_rotation_matrix3d;
-    inv_affine_transform.translation() = Eigen::Vector3d::Zero();
+    // // Create a 3D affine transformation from the inverse rotation matrix and 0 translation vector
+    // Eigen::Transform<double, 3, Eigen::Affine> inv_affine_transform;
+    // inv_affine_transform = inv_rotation_matrix3d;
+    // inv_affine_transform.translation() = Eigen::Vector3d::Zero();
 
-    inv_rotation_matrix4d = inv_affine_transform.matrix();
+    // inv_rotation_matrix4d = inv_affine_transform.matrix();
 
     return;
 }
@@ -188,8 +188,13 @@ int main(int argc, char* argv[]) {
   float float_num = static_cast<float>(numFrames);
 
   // Exposure settings
-  float exposure = CONFIG["exposure"].as<float>();
-  bool set_exposure = CONFIG["set_exposure"].as<bool>();
+  float exposure;
+  bool set_exposure = false;
+  auto exposure_settings = CONFIG["exposures"].as<std::map<std::string, float>>();
+  if (exposure_settings.count(scene_name) == 1) {
+    exposure = exposure_settings[scene_name];
+    set_exposure = true;
+  }
 
   // Get rotation angle if any
   float rotation_angle = CONFIG["rotation_angle"].as<float>() * DEG2RAD;
@@ -259,7 +264,7 @@ int main(int argc, char* argv[]) {
 
   // Setup a camera
   pangolin::OpenGlRenderState s_cam;
-  Eigen::Matrix4d T_camera_world, T_affine, T_backrot, M_intr;
+  Eigen::Matrix4d T_camera_world, T_affine, M_intr;
   Eigen::Matrix3d M_cam;
   Eigen::Vector3d incremental_translation, axis1, axis2;
 
@@ -273,22 +278,22 @@ int main(int argc, char* argv[]) {
     z_increment = (paths.at(idx)[2+3*argmax_idx] - paths.at(idx)[5-3*argmax_idx]) / float_num; 
     
     // Get incremental translation vector (for each step, apply this translation)
-    incremental_translation = Eigen::Vector3d(x_increment, y_increment, z_increment);
+    incremental_translation = Eigen::Vector3d(-x_increment, -y_increment, -z_increment);
 
     // Get perpendicular axes to the incremental translation vector
     generatePerpendicularVectors(incremental_translation, axis1, axis2);
 
     // Incremental Transformation Matrix
-    T_affine << 1, 0, 0, x_increment,
-                0, 1, 0, y_increment,
-                0, 0, 1, z_increment,
+    T_affine << 1, 0, 0, -x_increment,
+                0, 1, 0, -y_increment,
+                0, 0, 1, -z_increment,
                 0, 0, 0, 1;  
 
-    // Back rotation matrix (initialize as identity)
-    T_backrot << 1, 0, 0, 0,
-                 0, 1, 0, 0,
-                 0, 0, 1, 0,
-                 0, 0, 0, 1;
+    // // Back rotation matrix (initialize as identity)
+    // T_backrot << 1, 0, 0, 0,
+    //              0, 1, 0, 0,
+    //              0, 0, 1, 0,
+    //              0, 0, 0, 1;
 
     // Set View matrix
     s_cam = pangolin::OpenGlRenderState(
@@ -307,10 +312,21 @@ int main(int argc, char* argv[]) {
         pangolin::AxisNegZ));
 
     // Get Intrinsics for config: (width, height, fx, fy, cx, cy, near, far)
-    storeCamParams(width, height, width / 2.0f, width / 2.0f, (width - 1.0f) / 2.0f, (height - 1.0f) / 2.0f, 0.1f, 100.0f);
+    storeCamParams(width, height, width / 2.0f, width / 2.0f, (width - 1.0f) / 2.0f, (height - 1.0f) / 2.0f, 0.1f, 50.0f);
 
     // Start at some origin (set by input values)
     T_camera_world = s_cam.GetModelViewMatrix();
+
+    // Extract projection matrix as pangolin::OpenGlMatrix
+    Eigen::Matrix4d projMatrix = s_cam.GetProjectionMatrix();
+
+    // // Transform projection matrix to Eigen::Matrix4d
+    // Eigen::Matrix4d eigenProjMatrix;
+    // for (int i = 0; i < 16; ++i) {
+    //   eigenProjMatrix(i) = projMatrix.m[i];
+    // }
+
+    saveData("projMatrix.txt", projMatrix, "worldmatrix");
 
     // render some frames
     for (auto i = 0; i < numFrames; i++) {
@@ -394,11 +410,11 @@ int main(int argc, char* argv[]) {
       // First transform transformation matrix, then Move the camera to desired position
       if (do_rotation) {
         // Rotate the camera
-        randomRotation(rotation_angle, axis1, axis2, incremental_translation, T_backrot, T_affine);
+        randomRotation(rotation_angle, axis1, axis2, incremental_translation, T_camera_world, T_affine);
       }
 
       // Apply incremental translation (+ rotation if enabled)
-      T_camera_world = T_camera_world * T_affine.inverse();
+      T_camera_world = T_camera_world * T_affine;
 
       // Set View matrix
       s_cam.SetModelViewMatrix(T_camera_world);

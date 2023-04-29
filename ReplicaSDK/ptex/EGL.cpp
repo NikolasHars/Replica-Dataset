@@ -7,6 +7,10 @@
 #include <GL/glew.h>
 #include <dlfcn.h>
 #include <cstring>
+#include <X11/Xlib.h>
+
+#include <iostream>
+#include <stdio.h>
 
 EGLCtx::EGLCtx(const bool createCtx, const int cudaDevice, const bool createSurface)
     : lib("libEGL.so"), createdCtx(createCtx) {
@@ -14,11 +18,12 @@ EGLCtx::EGLCtx(const bool createCtx, const int cudaDevice, const bool createSurf
   // dynamically loading)
   handle = dlopen(lib.c_str(), RTLD_LAZY);
 
-  if (nullptr == handle)
+
+  if (nullptr == handle) {
     handle = dlopen(
         "/usr/local/lib/libEGL.so",
         RTLD_LAZY); // dgx machines have this location, which is not on the lib search path
-
+  }
   ASSERT(handle, "Can't find " + lib + ", " + dlerror());
 
   dlerror(); // Clear any existing error
@@ -106,6 +111,7 @@ EGLCtx::EGLCtx(const bool createCtx, const int cudaDevice, const bool createSurf
 
     int eglDevId = 0;
     bool foundCudaDev = false;
+
     // Find the CUDA device asked for
     for (; eglDevId < numDevices; ++eglDevId) {
       EGLAttrib cudaDevNumber;
@@ -115,6 +121,7 @@ EGLCtx::EGLCtx(const bool createCtx, const int cudaDevice, const bool createSurf
         continue;
 
       if (cudaDevNumber == cudaDevice) {
+        foundCudaDev = true;
         break;
       }
     }
