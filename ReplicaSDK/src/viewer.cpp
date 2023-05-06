@@ -66,12 +66,9 @@ int main(int argc, char* argv[]) {
   std::string name = scene_name;
   std::string pose_file_name = name + "_poses.csv";
 
-  std::string name = "pose_";
   int number = 0;
 
   const int uiWidth = 180;
-  const int width = 1280;
-  const int height = 960;
 
   // Setup OpenGL Display (based on GLUT)
   pangolin::CreateWindowAndBind("ReplicaViewer", uiWidth + width, height);

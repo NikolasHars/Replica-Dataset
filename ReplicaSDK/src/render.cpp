@@ -23,6 +23,9 @@
 #include "GLCheck.h"
 #include "MirrorRenderer.h"
 
+#include <sstream>
+
+
 using namespace std;
 using namespace Eigen;
 
@@ -31,17 +34,63 @@ using namespace Eigen;
 std::string YAML_FILE = "/cluster/project/infk/courses/252-0579-00L/group04/processed_data/conf.yaml";
 auto CONFIG = YAML::LoadFile(YAML_FILE);
 
+Eigen::Matrix4d getMatrixFromCSVLine(std::vector< std::string >& line_of_file) {
+  Eigen::Matrix4d hom_pose;
+  hom_pose << stod(line_of_file[0]), stod(line_of_file[1]), stod(line_of_file[2]), stod(line_of_file[3]),
+              stod(line_of_file[4]), stod(line_of_file[5]), stod(line_of_file[6]), stod(line_of_file[7]),
+              stod(line_of_file[8]), stod(line_of_file[9]), stod(line_of_file[10]), stod(line_of_file[11]),
+              stod(line_of_file[12]), stod(line_of_file[13]), stod(line_of_file[14]), stod(line_of_file[15]);
+  return hom_pose;
+} 
+
+std::vector< Eigen::Matrix4d > readCSV(std::string filename) {
+  // read the csv file
+  std::vector< Eigen::Matrix4d> content;
+	std::vector<std::string> row;
+	std::string line, word; 
+  int i = 0;
+ 
+	std::fstream file (filename, ios::in);
+	if(file.is_open())
+	{
+		while(getline(file, line))
+		{
+			row.clear();
+ 
+			std::stringstream str(line);
+      i = 0;
+			while(getline(str, word, ',')) {
+				if (i > 0)
+          row.push_back(word);
+        ++i; // ignore first word which is a string
+      }
+
+      Eigen::Matrix4d tmp_matrix = getMatrixFromCSVLine(row);
+			content.push_back(tmp_matrix);
+		}
+    file.close();
+    return content;
+	}
+	else
+		cout<<"Could not open the file\n";
+    return content;
+}
+
+
 /**
   theta_x = atan2(r32, r33)
   theta_y = atan2(-r31, sqrt(r32^2 + r33^2))
   theta_z = atan2(r21, r11)
 */
-std::array<double, 3> rodriguezFormula(Eigen::Matrix4d& hom_pose) {
-  theta_x = atan2(hom_pose(2,1), hom_pose(2,2));
-  theta_y = atan2(-hom_pose(2,0), sqrt(hom_pose(2,1) * hom_pose(2,1) + hom_pose(2,2) * hom_pose(2,2)));
-  theta_z = atan2(hom_pose(1,0), hom_pose(0,0))
+std::array<double, 3> getAngleArray(Eigen::Matrix4d& hom_pose) {
+  double theta_x = atan2(hom_pose(2,1), hom_pose(2,2));
+  double theta_y = atan2(-hom_pose(2,0), sqrt(hom_pose(0,0) * hom_pose(0,0) + hom_pose(1,0) * hom_pose(1,0)));
+  double theta_z = atan2(hom_pose(1,0), hom_pose(0,0));
   return std::array<double, 3> {theta_x, theta_y, theta_z};
+}
 
+std::array<double, 3> getTranslationArray(Eigen::Matrix4d& hom_pose) {
+  return std::array<double, 3> {hom_pose(0,3), hom_pose(1,3), hom_pose(2,3)};
 }
 
 
@@ -73,6 +122,16 @@ void generatePerpendicularVectors(const Eigen::Vector3d& vector, Eigen::Vector3d
 
     // Set the second perpendicular vector to the cross product of the specified vector and the first perpendicular vector
     v2 = vector.cross(v1).normalized();
+}
+
+Eigen::Affine3d create_rotation_matrix(double ax, double ay, double az) {
+  Eigen::Affine3d rx =
+      Eigen::Affine3d(Eigen::AngleAxisd(ax, Eigen::Vector3d(1, 0, 0)));
+  Eigen::Affine3d ry =
+      Eigen::Affine3d(Eigen::AngleAxisd(ay, Eigen::Vector3d(0, 1, 0)));
+  Eigen::Affine3d rz =
+      Eigen::Affine3d(Eigen::AngleAxisd(az, Eigen::Vector3d(0, 0, 1)));
+  return rz * ry * rx;
 }
 
 // Generates a random rotation matrix around two perpendicular axes
@@ -212,6 +271,20 @@ int main(int argc, char* argv[]) {
     set_exposure = true;
   }
 
+  // Check if there are poses to use in a pose.csv file
+  bool use_poses = false;
+  auto csv_file_map_map = CONFIG["csv_files"].as< std::map < std::string, std::map < std::string, std::string > > > ();
+  std::vector<Eigen::Matrix4d> csv_file_poses;
+  std::string csv_file_name_map = CONFIG["csv_file_name"].as< std::string > ();
+  if (csv_file_map_map.count(scene_name) == 1) {
+    std::map < std::string, std::string > csv_file_map = csv_file_map_map[scene_name];
+    if (csv_file_map.count(csv_file_name_map) == 1) {
+      std::string csv_file_name = csv_file_map[csv_file_name_map];
+      csv_file_poses = readCSV(csv_file_name);
+      use_poses = true;
+    }
+  }
+
   // Get rotation angle if any
   float rotation_angle = CONFIG["rotation_angle"].as<float>() * DEG2RAD;
   bool do_rotation = CONFIG["do_rotation"].as<bool>();
@@ -242,12 +315,6 @@ int main(int argc, char* argv[]) {
   // Depth buffer
   pangolin::GlTexture depthTexture(width, height, GL_R32F, false, 0, GL_RED, GL_FLOAT, 0);
   pangolin::GlFramebuffer depthFrameBuffer(depthTexture, renderBuffer);
-
-  // Normal buffer
-  pangolin::GlTexture normalTexture(width, height, GL_RGB32F, false, 0, GL_RGB, GL_FLOAT, 0);
-  pangolin::GlRenderBuffer normalRenderBuffer(width, height);
-  pangolin::GlFramebuffer normalFrameBuffer(normalTexture, normalRenderBuffer);
-  normalFrameBuffer.AttachColour(normalTexture);
 
   // load mirrors
   std::vector<MirrorSurface> mirrors;
@@ -283,159 +350,322 @@ int main(int argc, char* argv[]) {
   Eigen::Matrix4d T_camera_world, T_affine, M_intr;
   Eigen::Matrix3d M_cam;
   Eigen::Vector3d incremental_translation, axis1, axis2;
+  Eigen::Affine3d T_affine_3d;
 
-  float x_increment, y_increment, z_increment;
-  int argmax_idx;
-  for (int idx=0; idx < paths.size(); ++idx) {
-    argmax_idx = argmax(paths.at(idx)[2], paths.at(idx)[5]);
-    // Get incremental translation from the poses: (x_max - x_min) / num_frames
-    x_increment = (paths.at(idx)[3*argmax_idx] - paths.at(idx)[3-3*argmax_idx]) / float_num; 
-    y_increment = (paths.at(idx)[1+3*argmax_idx] - paths.at(idx)[4-3*argmax_idx]) / float_num; 
-    z_increment = (paths.at(idx)[2+3*argmax_idx] - paths.at(idx)[5-3*argmax_idx]) / float_num; 
-    
-    // Get incremental translation vector (for each step, apply this translation)
-    incremental_translation = Eigen::Vector3d(-x_increment, -y_increment, -z_increment);
+  if (use_poses) {
+    // get number of poses 
+    int num_poses = csv_file_poses.size();
+    int iterations = num_poses - 1;
 
-    // Get perpendicular axes to the incremental translation vector
-    generatePerpendicularVectors(incremental_translation, axis1, axis2);
+    Eigen::Matrix4d pose_initial, pose_final;
+    double x_increment, y_increment, z_increment;
+    double x_angle_increment, y_angle_increment, z_angle_increment;
+    std::array<double, 3> angles_initial, angles_final;
+    std::array<double, 3> translations_initial, translations_final;
 
-    // Incremental Transformation Matrix
-    T_affine << 1, 0, 0, -x_increment,
-                0, 1, 0, -y_increment,
-                0, 0, 1, -z_increment,
-                0, 0, 0, 1;  
+    // For each iteration we have to get the angle and translation between the two poses
+    pose_initial = csv_file_poses.at(0);
+    translations_initial = getTranslationArray(pose_initial);
+    angles_initial = getAngleArray(pose_initial);
+    for (int iter=0; iter < iterations; ++iter) {
+      // Get final pose
+      pose_final = csv_file_poses.at(iter+1);
+      translations_final = getTranslationArray(pose_final);
+      angles_final = getAngleArray(pose_final);
 
-    // // Back rotation matrix (initialize as identity)
-    // T_backrot << 1, 0, 0, 0,
-    //              0, 1, 0, 0,
-    //              0, 0, 1, 0,
-    //              0, 0, 0, 1;
+      saveData("hallo.txt", pose_initial, "hallo");
 
-    // Set View matrix
-    s_cam = pangolin::OpenGlRenderState(
-      pangolin::ProjectionMatrixRDF_BottomLeft(
-          width,
-          height,
-          width / 2.0f,
-          width / 2.0f,
-          (width - 1.0f) / 2.0f,
-          (height - 1.0f) / 2.0f,
-          0.1f,
-          100.0f),
-      pangolin::ModelViewLookAt(
-        paths.at(idx)[3-3*argmax_idx], paths.at(idx)[4-3*argmax_idx], paths.at(idx)[5-3*argmax_idx], 
-        paths.at(idx)[3*argmax_idx], paths.at(idx)[1+3*argmax_idx], paths.at(idx)[2+3*argmax_idx], 
-        pangolin::AxisNegZ));
+      // Compute increments
+      x_increment = (translations_final[0] - translations_initial[0]) / float_num;
+      y_increment = (translations_final[1] - translations_initial[1]) / float_num;
+      z_increment = (translations_final[2] - translations_initial[2]) / float_num;
+      x_angle_increment = (angles_final[0] - angles_initial[0]) / float_num;
+      y_angle_increment = (angles_final[1] - angles_initial[1]) / float_num;
+      z_angle_increment = (angles_final[2] - angles_initial[2]) / float_num;
 
-    // Get Intrinsics for config: (width, height, fx, fy, cx, cy, near, far)
-    storeCamParams(width, height, width / 2.0f, width / 2.0f, (width - 1.0f) / 2.0f, (height - 1.0f) / 2.0f, 0.1f, 50.0f);
+      // Set View matrix
+      s_cam = pangolin::OpenGlRenderState(
+        pangolin::ProjectionMatrixRDF_BottomLeft(
+            width,
+            height,
+            width / 2.0f,
+            width / 2.0f,
+            (width - 1.0f) / 2.0f,
+            (height - 1.0f) / 2.0f,
+            0.1f,
+            100.0f),
+        pangolin::ModelViewLookAt(
+          0, 0, 0, 
+          1, 0, 0, 
+          pangolin::AxisNegZ));
 
-    // Start at some origin (set by input values)
-    T_camera_world = s_cam.GetModelViewMatrix();
+      // Get Intrinsics for config: (width, height, fx, fy, cx, cy, near, far)
+      storeCamParams(width, height, width / 2.0f, width / 2.0f, (width - 1.0f) / 2.0f, (height - 1.0f) / 2.0f, 0.1f, 50.0f);
 
-    // Extract projection matrix as pangolin::OpenGlMatrix
-    Eigen::Matrix4d projMatrix = s_cam.GetProjectionMatrix();
+      T_camera_world = pose_initial;
+      s_cam.SetModelViewMatrix(T_camera_world);
 
-    // // Transform projection matrix to Eigen::Matrix4d
-    // Eigen::Matrix4d eigenProjMatrix;
-    // for (int i = 0; i < 16; ++i) {
-    //   eigenProjMatrix(i) = projMatrix.m[i];
-    // }
+      Eigen::Matrix4d projMatrix = s_cam.GetProjectionMatrix();
+      saveData("projMatrix.txt", projMatrix, "worldmatrix");
 
-    saveData("projMatrix.txt", projMatrix, "worldmatrix");
+      // render some frames
+      for (auto i = 0; i < numFrames; i++) {
+        std::cout << "\rRendering frame " << i + 1 << "/" << numFrames << "... ";
+        std::cout.flush();
 
-    // render some frames
-    for (auto i = 0; i < numFrames; i++) {
-      std::cout << "\rRendering frame " << i + 1 << "/" << numFrames << "... ";
-      std::cout.flush();
-
-      // Render
-      frameBuffer.Bind();
-      glPushAttrib(GL_VIEWPORT_BIT);
-      glViewport(0, 0, width, height);
-      glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
-
-      glEnable(GL_CULL_FACE);
-
-      ptexMesh.Render(s_cam);
-
-      glDisable(GL_CULL_FACE);
-
-      glPopAttrib(); // GL_VIEWPORT_BIT
-      frameBuffer.Unbind();
-
-      for (size_t i = 0; i < mirrors.size(); i++) {
-        MirrorSurface& mirror = mirrors[i];
-        // capture reflections
-        mirrorRenderer.CaptureReflection(mirror, ptexMesh, s_cam, frontFace);
-
+        // Render
         frameBuffer.Bind();
-        glPushAttrib(GL_VIEWPORT_BIT);
-        glViewport(0, 0, width, height);
-
-        // render mirror
-        mirrorRenderer.Render(mirror, mirrorRenderer.GetMaskTexture(i), s_cam);
-
-        glPopAttrib(); //GL_VIEWPORT_BIT
-        frameBuffer.Unbind();
-      }
-
-      // Download and save
-      render.Download(image.ptr, GL_RGB, GL_UNSIGNED_BYTE);
-
-      char filename[1000];
-      snprintf(filename, 1000, "imgs/%03d_frame_%06d.jpg", idx, i);
-
-      saveData(pose_file_name, T_camera_world, std::string(filename));
-
-      pangolin::SaveImage(
-          image.UnsafeReinterpret<uint8_t>(),
-          pangolin::PixelFormatFromString("RGB24"),
-          std::string(filename));
-
-      // Render depth
-      if (renderDepth) {
-        // render depth
-        depthFrameBuffer.Bind();
         glPushAttrib(GL_VIEWPORT_BIT);
         glViewport(0, 0, width, height);
         glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 
         glEnable(GL_CULL_FACE);
 
-        ptexMesh.RenderDepth(s_cam, depthScale);
+        ptexMesh.Render(s_cam);
 
         glDisable(GL_CULL_FACE);
 
-        glPopAttrib(); //GL_VIEWPORT_BIT
-        depthFrameBuffer.Unbind();
+        glPopAttrib(); // GL_VIEWPORT_BIT
+        frameBuffer.Unbind();
 
-        depthTexture.Download(depthImage.ptr, GL_RED, GL_FLOAT);
+        for (size_t i = 0; i < mirrors.size(); i++) {
+          MirrorSurface& mirror = mirrors[i];
+          // capture reflections
+          mirrorRenderer.CaptureReflection(mirror, ptexMesh, s_cam, frontFace);
 
-        // convert to 16-bit int
-        for(size_t i = 0; i < depthImage.Area(); i++)
-            depthImageInt[i] = static_cast<uint16_t>(depthImage[i] + 0.5f);
+          frameBuffer.Bind();
+          glPushAttrib(GL_VIEWPORT_BIT);
+          glViewport(0, 0, width, height);
 
-        snprintf(filename, 1000, "labels/%03d_depth_%06d.png", idx, i);
+          // render mirror
+          mirrorRenderer.Render(mirror, mirrorRenderer.GetMaskTexture(i), s_cam);
+
+          glPopAttrib(); //GL_VIEWPORT_BIT
+          frameBuffer.Unbind();
+        }
+
+        // Download and save
+        render.Download(image.ptr, GL_RGB, GL_UNSIGNED_BYTE);
+
+        char filename[1000];
+        snprintf(filename, 1000, "imgs/%03d_frame_%06d.jpg", iter, i);
+
+        saveData(pose_file_name, T_camera_world, std::string(filename));
+
         pangolin::SaveImage(
-            depthImageInt.UnsafeReinterpret<uint8_t>(),
-            pangolin::PixelFormatFromString("GRAY16LE"),
-            std::string(filename), true, 34.0f);
-      }
+            image.UnsafeReinterpret<uint8_t>(),
+            pangolin::PixelFormatFromString("RGB24"),
+            std::string(filename));
 
-      // First transform transformation matrix, then Move the camera to desired position
-      if (do_rotation) {
-        // Rotate the camera
-        randomRotation(rotation_angle, axis1, axis2, incremental_translation, T_camera_world, T_affine);
-      }
+        // Render depth
+        if (renderDepth) {
+          // render depth
+          depthFrameBuffer.Bind();
+          glPushAttrib(GL_VIEWPORT_BIT);
+          glViewport(0, 0, width, height);
+          glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+
+          glEnable(GL_CULL_FACE);
+
+          ptexMesh.RenderDepth(s_cam, depthScale);
+
+          glDisable(GL_CULL_FACE);
+
+          glPopAttrib(); //GL_VIEWPORT_BIT
+          depthFrameBuffer.Unbind();
+
+          depthTexture.Download(depthImage.ptr, GL_RED, GL_FLOAT);
+
+          // convert to 16-bit int
+          for(size_t i = 0; i < depthImage.Area(); i++)
+              depthImageInt[i] = static_cast<uint16_t>(depthImage[i] + 0.5f);
+
+          snprintf(filename, 1000, "labels/%03d_depth_%06d.png", iter, i);
+          pangolin::SaveImage(
+              depthImageInt.UnsafeReinterpret<uint8_t>(),
+              pangolin::PixelFormatFromString("GRAY16LE"),
+              std::string(filename), true, 34.0f);
+        }
 
       // Apply incremental translation (+ rotation if enabled)
-      T_camera_world = T_camera_world * T_affine;
+      T_affine_3d = create_rotation_matrix(
+        angles_initial[0] + (i+1)*x_angle_increment, 
+        angles_initial[1] + (i+1)*y_angle_increment, 
+        angles_initial[2] + (i+1)*z_angle_increment
+      );
+
+      T_affine_3d.translation() = Eigen::Vector3d(
+        translations_initial[0] + (i+1)*x_increment, 
+        translations_initial[1] + (i+1)*y_increment, 
+        translations_initial[2] + (i+1)*z_increment
+      );
+
+      T_camera_world = T_affine_3d.matrix(); 
 
       // Set View matrix
       s_cam.SetModelViewMatrix(T_camera_world);
+      }
+      std::cout << "\rRendering frame " << numFrames << "/" << numFrames << "... done" << std::endl;
+      // Afterwards, we have to update the initial pose
+      pose_initial = pose_final; 
+      translations_initial = translations_final;
+      angles_initial = angles_final;
     }
-    std::cout << "\rRendering frame " << numFrames << "/" << numFrames << "... done" << std::endl;
+  }
+  else {
+    float x_increment, y_increment, z_increment;
+    int argmax_idx;
+    for (int idx=0; idx < paths.size(); ++idx) {
+      argmax_idx = argmax(paths.at(idx)[2], paths.at(idx)[5]);
+      // Get incremental translation from the poses: (x_max - x_min) / num_frames
+      x_increment = (paths.at(idx)[3*argmax_idx] - paths.at(idx)[3-3*argmax_idx]) / float_num; 
+      y_increment = (paths.at(idx)[1+3*argmax_idx] - paths.at(idx)[4-3*argmax_idx]) / float_num; 
+      z_increment = (paths.at(idx)[2+3*argmax_idx] - paths.at(idx)[5-3*argmax_idx]) / float_num; 
+      
+      // Get incremental translation vector (for each step, apply this translation)
+      incremental_translation = Eigen::Vector3d(-x_increment, -y_increment, -z_increment);
+
+      // Get perpendicular axes to the incremental translation vector
+      generatePerpendicularVectors(incremental_translation, axis1, axis2);
+
+      // Incremental Transformation Matrix
+      T_affine << 1, 0, 0, -x_increment,
+                  0, 1, 0, -y_increment,
+                  0, 0, 1, -z_increment,
+                  0, 0, 0, 1;  
+
+      // // Back rotation matrix (initialize as identity)
+      // T_backrot << 1, 0, 0, 0,
+      //              0, 1, 0, 0,
+      //              0, 0, 1, 0,
+      //              0, 0, 0, 1;
+
+      // Set View matrix
+      s_cam = pangolin::OpenGlRenderState(
+        pangolin::ProjectionMatrixRDF_BottomLeft(
+            width,
+            height,
+            width / 2.0f,
+            width / 2.0f,
+            (width - 1.0f) / 2.0f,
+            (height - 1.0f) / 2.0f,
+            0.1f,
+            100.0f),
+        pangolin::ModelViewLookAt(
+          paths.at(idx)[3-3*argmax_idx], paths.at(idx)[4-3*argmax_idx], paths.at(idx)[5-3*argmax_idx], 
+          paths.at(idx)[3*argmax_idx], paths.at(idx)[1+3*argmax_idx], paths.at(idx)[2+3*argmax_idx], 
+          pangolin::AxisNegZ));
+
+      // Get Intrinsics for config: (width, height, fx, fy, cx, cy, near, far)
+      storeCamParams(width, height, width / 2.0f, width / 2.0f, (width - 1.0f) / 2.0f, (height - 1.0f) / 2.0f, 0.1f, 50.0f);
+
+      // Start at some origin (set by input values)
+      T_camera_world = s_cam.GetModelViewMatrix();
+
+      // Extract projection matrix as pangolin::OpenGlMatrix
+      Eigen::Matrix4d projMatrix = s_cam.GetProjectionMatrix();
+
+      // // Transform projection matrix to Eigen::Matrix4d
+      // Eigen::Matrix4d eigenProjMatrix;
+      // for (int i = 0; i < 16; ++i) {
+      //   eigenProjMatrix(i) = projMatrix.m[i];
+      // }
+
+      saveData("projMatrix.txt", projMatrix, "worldmatrix");
+
+      // render some frames
+      for (auto i = 0; i < numFrames; i++) {
+        std::cout << "\rRendering frame " << i + 1 << "/" << numFrames << "... ";
+        std::cout.flush();
+
+        // Render
+        frameBuffer.Bind();
+        glPushAttrib(GL_VIEWPORT_BIT);
+        glViewport(0, 0, width, height);
+        glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+
+        glEnable(GL_CULL_FACE);
+
+        ptexMesh.Render(s_cam);
+
+        glDisable(GL_CULL_FACE);
+
+        glPopAttrib(); // GL_VIEWPORT_BIT
+        frameBuffer.Unbind();
+
+        for (size_t i = 0; i < mirrors.size(); i++) {
+          MirrorSurface& mirror = mirrors[i];
+          // capture reflections
+          mirrorRenderer.CaptureReflection(mirror, ptexMesh, s_cam, frontFace);
+
+          frameBuffer.Bind();
+          glPushAttrib(GL_VIEWPORT_BIT);
+          glViewport(0, 0, width, height);
+
+          // render mirror
+          mirrorRenderer.Render(mirror, mirrorRenderer.GetMaskTexture(i), s_cam);
+
+          glPopAttrib(); //GL_VIEWPORT_BIT
+          frameBuffer.Unbind();
+        }
+
+        // Download and save
+        render.Download(image.ptr, GL_RGB, GL_UNSIGNED_BYTE);
+
+        char filename[1000];
+        snprintf(filename, 1000, "imgs/%03d_frame_%06d.jpg", idx, i);
+
+        saveData(pose_file_name, T_camera_world, std::string(filename));
+
+        pangolin::SaveImage(
+            image.UnsafeReinterpret<uint8_t>(),
+            pangolin::PixelFormatFromString("RGB24"),
+            std::string(filename));
+
+        // Render depth
+        if (renderDepth) {
+          // render depth
+          depthFrameBuffer.Bind();
+          glPushAttrib(GL_VIEWPORT_BIT);
+          glViewport(0, 0, width, height);
+          glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+
+          glEnable(GL_CULL_FACE);
+
+          ptexMesh.RenderDepth(s_cam, depthScale);
+
+          glDisable(GL_CULL_FACE);
+
+          glPopAttrib(); //GL_VIEWPORT_BIT
+          depthFrameBuffer.Unbind();
+
+          depthTexture.Download(depthImage.ptr, GL_RED, GL_FLOAT);
+
+          // convert to 16-bit int
+          for(size_t i = 0; i < depthImage.Area(); i++)
+              depthImageInt[i] = static_cast<uint16_t>(depthImage[i] + 0.5f);
+
+          snprintf(filename, 1000, "labels/%03d_depth_%06d.png", idx, i);
+          pangolin::SaveImage(
+              depthImageInt.UnsafeReinterpret<uint8_t>(),
+              pangolin::PixelFormatFromString("GRAY16LE"),
+              std::string(filename), true, 34.0f);
+        }
+
+        // First transform transformation matrix, then Move the camera to desired position
+        if (do_rotation) {
+          // Rotate the camera
+          randomRotation(rotation_angle, axis1, axis2, incremental_translation, T_camera_world, T_affine);
+        }
+
+        // Apply incremental translation (+ rotation if enabled)
+        T_camera_world = T_camera_world * T_affine;
+
+        // Set View matrix
+        s_cam.SetModelViewMatrix(T_camera_world);
+      }
+      std::cout << "\rRendering frame " << numFrames << "/" << numFrames << "... done" << std::endl;
+    }
   }
   return 0;
 }
