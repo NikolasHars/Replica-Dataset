@@ -109,38 +109,6 @@ std::vector< Eigen::Matrix4d > readCSV(std::string filename) {
     return content;
 }
 
-std::vector< Eigen::Matrix4d > readCasimirCSV(std::string filename) {
-  // read the csv file
-  std::vector< Eigen::Matrix4d> content;
-	std::vector<std::string> row;
-	std::string line, word;
-  int i = 0;
- 
-	std::fstream file (filename, ios::in);
-	if(file.is_open())
-	{
-		while(getline(file, line))
-		{
-			row.clear();
- 
-			std::stringstream str(line);
-      i = 0;
-			while(getline(str, word, ',')) {
-          row.push_back(word);
-        ++i; // ignore first word which is a string
-      }
-
-      Eigen::Matrix4d tmp_matrix = getMatrixFromCSVLine(row);
-			content.push_back(tmp_matrix);
-		}
-    file.close();
-    return content;
-	}
-	else
-		cout<<"Could not open the file\n";
-    return content;
-}
-
 
 /**
   theta_x = atan2(r32, r33)
@@ -345,7 +313,7 @@ int main(int argc, char* argv[]) {
     std::map < std::string, std::string > csv_file_map = csv_file_map_map[scene_name];
     if (csv_file_map.count(csv_file_name_map) == 1) {
       std::string csv_file_name = csv_file_map[csv_file_name_map];
-      csv_file_poses = readCasimirCSV(csv_file_name);
+      csv_file_poses = readCSV(csv_file_name);
       use_poses = true;
     }
   }
@@ -417,115 +385,7 @@ int main(int argc, char* argv[]) {
   Eigen::Vector3d incremental_translation, axis1, axis2;
   Eigen::Affine3d T_affine_3d;
 
-  if (true) {
-    // get number of poses 
-    int num_poses = csv_file_poses.size();
-    int iterations = num_poses;
-
-    Eigen::Matrix4d pose;
-    // Set View matrix
-    s_cam = pangolin::OpenGlRenderState(
-      pangolin::ProjectionMatrixRDF_BottomLeft(
-          width,
-          height,
-          width / 2.0f,
-          width / 2.0f,
-          (width - 1.0f) / 2.0f,
-          (height - 1.0f) / 2.0f,
-          0.1f,
-          100.0f),
-      pangolin::ModelViewLookAt(
-        0, 0, 0, 
-        1, 0, 0, 
-        pangolin::AxisNegZ));
-    // For each iteration we have to get the angle and translation between the two poses
-    for (int iter=0; iter < iterations; ++iter) {
-      // Get final pose
-      pose = csv_file_poses.at(iter);
-
-      T_camera_world = pose;
-      s_cam.SetModelViewMatrix(T_camera_world);
-      
-      std::cout.flush();
-
-      // Render
-      frameBuffer.Bind();
-      glPushAttrib(GL_VIEWPORT_BIT);
-      glViewport(0, 0, width, height);
-      glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
-
-      glEnable(GL_CULL_FACE);
-
-      ptexMesh.Render(s_cam);
-
-      glDisable(GL_CULL_FACE);
-
-      glPopAttrib(); // GL_VIEWPORT_BIT
-      frameBuffer.Unbind();
-
-      for (size_t i = 0; i < mirrors.size(); i++) {
-        MirrorSurface& mirror = mirrors[i];
-        // capture reflections
-        mirrorRenderer.CaptureReflection(mirror, ptexMesh, s_cam, frontFace);
-
-        frameBuffer.Bind();
-        glPushAttrib(GL_VIEWPORT_BIT);
-        glViewport(0, 0, width, height);
-
-        // render mirror
-        mirrorRenderer.Render(mirror, mirrorRenderer.GetMaskTexture(i), s_cam);
-
-        glPopAttrib(); //GL_VIEWPORT_BIT
-        frameBuffer.Unbind();
-      }
-
-      // Download and save
-      render.Download(image.ptr, GL_RGB, GL_UNSIGNED_BYTE);
-
-      char filename[1000];
-      snprintf(filename, 1000, "imgs/%05d_rgb.jpg", iter);
-
-      saveData(pose_file_name, T_camera_world, std::string(filename));
-
-      pangolin::SaveImage(
-          image.UnsafeReinterpret<uint8_t>(),
-          pangolin::PixelFormatFromString("RGB24"),
-          std::string(filename));
-
-      // Render depth
-      if (renderDepth) {
-        // render depth
-        depthFrameBuffer.Bind();
-        glPushAttrib(GL_VIEWPORT_BIT);
-        glViewport(0, 0, width, height);
-        glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
-
-        glEnable(GL_CULL_FACE);
-
-        ptexMesh.RenderDepth(s_cam, depthScale);
-
-        glDisable(GL_CULL_FACE);
-
-        glPopAttrib(); //GL_VIEWPORT_BIT
-        depthFrameBuffer.Unbind();
-
-        depthTexture.Download(depthImage.ptr, GL_RED, GL_FLOAT);
-
-        // convert to 16-bit int
-        for(size_t i = 0; i < depthImage.Area(); i++)
-            depthImageInt[i] = static_cast<uint16_t>(depthImage[i] + 0.5f);
-
-        snprintf(filename, 1000, "labels/%05d_depth.png", iter);
-        pangolin::SaveImage(
-            depthImageInt.UnsafeReinterpret<uint8_t>(),
-            pangolin::PixelFormatFromString("GRAY16LE"),
-            std::string(filename), true, 34.0f);
-      }
-      std::cout << "\rRendering frame " << numFrames << "/" << numFrames << "... done" << std::endl;
-      // Afterwards, we have to update the initial pose
-    }
-  }
-  else if (use_poses) {
+  if (use_poses) {
     // get number of poses 
     int num_poses = csv_file_poses.size();
     int iterations = num_poses - 1;
